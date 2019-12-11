@@ -15,6 +15,7 @@ import random, shutil, os
 random.seed(123)
 import matplotlib
 matplotlib.use("Agg")
+import tensorflow as tf
 from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import LearningRateScheduler
 from keras.optimizers import Adagrad
@@ -87,6 +88,15 @@ trainClass = np_utils.to_categorical(trainClass)
 classTotals = trainClass.sum(axis=0)
 classWeight = classTotals.max() / classTotals
 
+# Create reduced data sets to create a model
+reduced_split = 0.01
+random.shuffle(trainPaths)
+index_train_reduced = int(len(trainPaths)*reduced_split)
+trainReduced = trainPaths[:index_train_reduced]
+random.shuffle(valPaths)
+index_val_reduced = int(len(valPaths)*reduced_split)
+valReduced = valPaths[:index_val_reduced]
+
 # Create a function to define the model
 def model(width,height,depth,classes):
     if K.image_data_format() != 'channels_first':
@@ -113,8 +123,8 @@ def model(width,height,depth,classes):
     
     return model
 
-# Apply the model
-model = model(width=48, height=48, depth=3, classes=len(classTotals))
+# Create and compile model
+model = model(width=50, height=50, depth=3, classes=len(classTotals))
 opt = Adagrad(lr=init_lr, decay=init_lr/num_epochs)
 model.compile(loss="binary_crossentropy",optimizer=opt,metrics=["accuracy"])
 
@@ -131,26 +141,43 @@ trainAug = ImageDataGenerator(
             vertical_flip=True,
             fill_mode="nearest")
 
-trainGen = trainAug.flow_from_directory(train_path,
+generator = ImageDataGenerator(rescale=1/255.0)
+
+trainGen = generator.flow_from_directory(train_path,
                                         class_mode="categorical",
-                                        target_size=(48,48),
+                                        target_size=(50,50),
                                         color_mode="rgb",
                                         shuffle=True,
                                         batch_size=batch_size)
 
-valAug = ImageDataGenerator(rescale=1/255.0)
-
-valGen = valAug.flow_from_directory(val_path,
+valGen = generator.flow_from_directory(val_path,
                                         class_mode="categorical",
-                                        target_size=(48,48),
+                                        target_size=(50,50),
                                         color_mode="rgb",
-                                        shuffle=False,
+                                        shuffle=True,
                                         batch_size=batch_size)
 
 M = model.fit_generator(
         trainGen,
-        steps_per_epoch=lenTrain/batch_size,
+        steps_per_epoch=(lenTrain/batch_size)*reduced_split,
         validation_data=valGen,
-        validation_steps=lenVal/batch_size,
+        validation_steps=(lenVal/batch_size)*reduced_split,
         class_weight=classWeight,
         epochs=1)
+
+predictions = model.predict_generator(valGen, 
+                                      steps=lenVal/batch_size)
+# Get most likely class
+predicted_classes = np.argmax(predictions, axis=1)
+predicted_classes.sum()
+
+true_classes = valGen.classes
+class_labels = list(valGen.class_indices.keys())
+
+report = classification_report(true_classes, 
+                                       predicted_classes, 
+                                       target_names=class_labels)
+
+matrix = confusion_matrix(true_classes,
+                          predicted_classes,
+                          labels=[0, 1])
