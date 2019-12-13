@@ -181,3 +181,120 @@ report = classification_report(true_classes,
 matrix = confusion_matrix(true_classes,
                           predicted_classes,
                           labels=[0, 1])
+
+
+#------------------------------------------------------------------------------
+# Tensorflow
+
+leaky_relu_alpha = 0.2
+dropout_rate = 0.5
+
+def conv2d( inputs , filters , stride_size ):
+    out = tf.nn.conv2d( inputs , 
+                       filters , 
+                       strides=[ 1 , stride_size , stride_size , 1 ] , 
+                       padding='SAME') 
+    return tf.nn.leaky_relu( out , alpha=leaky_relu_alpha ) 
+
+def maxpool( inputs , pool_size , stride_size ):
+    return tf.nn.max_pool2d( inputs , 
+                            ksize=[ 1 , pool_size , pool_size , 1 ] , 
+                            padding='VALID' , 
+                            strides=[ 1 , stride_size , stride_size , 1 ] )
+
+def dense( inputs , weights ):
+    x = tf.nn.leaky_relu( tf.matmul( inputs , weights ) , 
+                         alpha=leaky_relu_alpha )
+    return tf.nn.dropout( x , rate=dropout_rate )
+
+
+initializer = tf.initializers.glorot_uniform()
+def get_weight( shape , name ):
+    return tf.Variable( initializer( shape ) , 
+                       name=name , 
+                       trainable=True , 
+                       dtype=tf.float32 )
+
+shapes = [
+    [ 50 , 50 , 3 , 3 ] , 
+    [ 50 , 50 , 3 , 3 ] , 
+#    [ 3 , 3 , 16 , 32 ] , 
+#    [ 3 , 3 , 32 , 32 ] ,
+#    [ 3 , 3 , 32 , 64 ] , 
+#    [ 3 , 3 , 64 , 64 ] ,
+#    [ 3 , 3 , 64 , 128 ] , 
+#    [ 3 , 3 , 128 , 128 ] ,
+#    [ 3 , 3 , 128 , 256 ] , 
+#    [ 3 , 3 , 256 , 256 ] ,
+#    [ 3 , 3 , 256 , 512 ] , 
+#    [ 3 , 3 , 512 , 512 ] ,
+    [ 1875 , 32 ] , 
+#    [ 3600 , 2400 ] ,
+#    [ 2400 , 1600 ] , 
+#    [ 1600 , 800 ] ,
+#    [ 800 , 64 ] ,
+    [ 32 , 2 ] 
+]
+
+weights = []
+for i in range( len( shapes ) ):
+    weights.append( get_weight( shapes[ i ] , 'weight{}'.format( i ) ) )
+    
+def model_tf( x ) :
+    x = tf.cast( x , dtype=tf.float32 )
+    c1 = conv2d( x , weights[ 0 ] , stride_size=1 ) 
+    c1 = conv2d( c1 , weights[ 1 ] , stride_size=1 ) 
+    p1 = maxpool( c1 , pool_size=2 , stride_size=2 )
+    
+#    c2 = conv2d( p1 , weights[ 2 ] , stride_size=1 )
+#    c2 = conv2d( c2 , weights[ 3 ] , stride_size=1 ) 
+#    p2 = maxpool( c2 , pool_size=2 , stride_size=2 )
+    
+#    c3 = conv2d( p2 , weights[ 4 ] , stride_size=1 ) 
+#    c3 = conv2d( c3 , weights[ 5 ] , stride_size=1 ) 
+#    p3 = maxpool( c3 , pool_size=2 , stride_size=2 )
+    
+#    c4 = conv2d( p3 , weights[ 6 ] , stride_size=1 )
+#    c4 = conv2d( c4 , weights[ 7 ] , stride_size=1 )
+#    p4 = maxpool( c4 , pool_size=2 , stride_size=2 )
+
+#    c5 = conv2d( p4 , weights[ 8 ] , stride_size=1 )
+#    c5 = conv2d( c5 , weights[ 9 ] , stride_size=1 )
+#    p5 = maxpool( c5 , pool_size=2 , stride_size=2 )
+
+#    c6 = conv2d( p5 , weights[ 10 ] , stride_size=1 )
+#    c6 = conv2d( c6 , weights[ 11 ] , stride_size=1 )
+#    p6 = maxpool( c6 , pool_size=2 , stride_size=2 )
+
+    flatten = tf.reshape( p1 , shape=( tf.shape( p1 )[0] , -1 ))
+
+    d1 = dense( flatten , weights[ 2 ] )
+#    d2 = dense( d1 , weights[ 13 ] )
+#    d3 = dense( d2 , weights[ 14 ] )
+#    d4 = dense( d3 , weights[ 15 ] )
+#    d5 = dense( d4 , weights[ 16 ] )
+    logits = tf.matmul( d1 , weights[ 3 ] )
+
+    return tf.nn.softmax( logits )
+
+def loss_tf( pred , target ):
+    return tf.losses.categorical_crossentropy( target , pred )
+
+optimizer = tf.optimizers.Adam(init_lr)
+
+def train_step( model, inputs , outputs ):
+    with tf.GradientTape() as tape:
+        current_loss = loss_tf(model(inputs), outputs)
+    grads = tape.gradient( current_loss , weights )
+    optimizer.apply_gradients( zip( grads , weights ) )
+    print( tf.reduce_mean( current_loss ) )
+    
+#for e in range( num_epochs ):
+    for features in trainGen:
+#        print(features)
+        image , label = features[0] , features[1]
+#        label = tf.convert_to_tensor(label, tf.float32)
+#        print(label.dtype)
+#        train_step( model_tf , image , tf.one_hot( label , depth=3 ) )
+        train_step( model_tf , image , label)
+    
