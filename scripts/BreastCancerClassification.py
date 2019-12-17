@@ -89,13 +89,35 @@ classTotals = trainClass.sum(axis=0)
 classWeight = classTotals.max() / classTotals
 
 # Create reduced data sets to create a model
+train_reduced = os.path.sep.join([base_path, "training_reduced"])
+val_reduced = os.path.sep.join([base_path, "validation_reduced"])
 reduced_split = 0.01
+
 random.shuffle(trainPaths)
 index_train_reduced = int(len(trainPaths)*reduced_split)
 trainReduced = trainPaths[:index_train_reduced]
 random.shuffle(valPaths)
 index_val_reduced = int(len(valPaths)*reduced_split)
 valReduced = valPaths[:index_val_reduced]
+datasets_reduced = [("training_reduced", trainReduced, train_reduced),
+                    ("validation_reduced", valReduced, val_reduced)]
+
+for (setType, trainPaths, basePath) in datasets_reduced:
+        print(f'Building {setType} set')
+        if not os.path.exists(basePath):
+                print(f'Building directory {basePath}')
+                os.makedirs(basePath)
+        for path in trainReduced:
+                # Pick name of the image file
+                image = path.split(os.path.sep)[-1]
+                # Pick the class of the image
+                class_image = image[-5:-4]
+                classPath = os.path.sep.join([train_reduced, class_image])
+                if not os.path.exists(classPath):
+                        print(f'Building directory {classPath}')
+                        os.makedirs(classPath)
+                newPath = os.path.sep.join([classPath, image])
+                shutil.copy2(path, newPath)
 
 # Create a function to define the model
 def model(width,height,depth,classes):
@@ -107,10 +129,12 @@ def model(width,height,depth,classes):
         channelDim = 1
     
     model = Sequential()
-    model.add(SeparableConv2D(32, (3,3), padding="same",input_shape=shape))
+    model.add(SeparableConv2D(32, (3,3), 
+                              padding = "same", 
+                              input_shape = shape))
     model.add(Activation("relu"))
-    model.add(BatchNormalization(axis=channelDim))
-    model.add(MaxPooling2D(pool_size=(2,2)))
+    model.add(BatchNormalization(axis = channelDim))
+    model.add(MaxPooling2D(pool_size = (2,2)))
     model.add(Dropout(0.25))
     
     model.add(Flatten())
@@ -124,49 +148,51 @@ def model(width,height,depth,classes):
     return model
 
 # Create and compile model
-model = model(width=50, height=50, depth=3, classes=len(classTotals))
-opt = Adagrad(lr=init_lr, decay=init_lr/num_epochs)
-model.compile(loss="binary_crossentropy",optimizer=opt,metrics=["accuracy"])
+model = model(width = 50, height = 50, depth = 3, classes = len(classTotals))
+opt = Adagrad(lr = init_lr, decay = (init_lr/num_epochs))
+model.compile(loss = "binary_crossentropy", 
+              optimizer = opt,
+              metrics = ["accuracy"])
 
-
-# -----------------------------------------------------------------------------
+# Augmentation
 trainAug = ImageDataGenerator(
-            rescale=1/255.0,
-            rotation_range=20,
-            zoom_range=0.05,
-            width_shift_range=0.1,
-            height_shift_range=0.1,
-            shear_range=0.05,
-            horizontal_flip=True,
-            vertical_flip=True,
-            fill_mode="nearest")
+            rescale = 1/255.0,
+            rotation_range = 20,
+            zoom_range = 0.05,
+            width_shift_range = 0.1,
+            height_shift_range = 0.1,
+            shear_range = 0.05,
+            horizontal_flip = True,
+            vertical_flip = True,
+            fill_mode = "nearest")
 
 generator = ImageDataGenerator(rescale=1/255.0)
 
-trainGen = generator.flow_from_directory(train_path,
-                                        class_mode="categorical",
-                                        target_size=(50,50),
-                                        color_mode="rgb",
-                                        shuffle=True,
-                                        batch_size=batch_size)
+trainGen = generator.flow_from_directory(train_reduced,
+                                        class_mode = "categorical",
+                                        target_size = (50,50),
+                                        color_mode = "rgb",
+                                        shuffle = True,
+                                        batch_size = batch_size)
 
-valGen = generator.flow_from_directory(val_path,
-                                        class_mode="categorical",
-                                        target_size=(50,50),
-                                        color_mode="rgb",
-                                        shuffle=True,
-                                        batch_size=batch_size)
+valGen = generator.flow_from_directory(val_reduced,
+                                        class_mode = "categorical",
+                                        target_size = (50,50),
+                                        color_mode = "rgb",
+                                        shuffle = True,
+                                        batch_size = batch_size)
 
+# Fit the model
 M = model.fit_generator(
         trainGen,
-        steps_per_epoch=(lenTrain/batch_size)*reduced_split,
-        validation_data=valGen,
-        validation_steps=(lenVal/batch_size)*reduced_split,
-        class_weight=classWeight,
-        epochs=1)
+        steps_per_epoch = (len(trainReduced)/batch_size),
+        validation_data = valGen,
+        validation_steps = (len(valReduced)/batch_size),
+        class_weight = classWeight,
+        epochs = num_epochs)
 
 predictions = model.predict_generator(valGen, 
-                                      steps=lenVal/batch_size)
+                                      steps = (len(valReduced)/batch_size))
 # Get most likely class
 predicted_classes = np.argmax(predictions, axis=1)
 predicted_classes.sum()
@@ -175,17 +201,15 @@ true_classes = valGen.classes
 class_labels = list(valGen.class_indices.keys())
 
 report = classification_report(true_classes, 
-                                       predicted_classes, 
-                                       target_names=class_labels)
+                               predicted_classes, 
+                               target_names = class_labels)
+print(report)
 
 matrix = confusion_matrix(true_classes,
                           predicted_classes,
-                          labels=[0, 1])
+                          labels = [0, 1])
 
-
-#------------------------------------------------------------------------------
-# Tensorflow
-
+# Tensorflow (without Keras)
 leaky_relu_alpha = 0.2
 dropout_rate = 0.5
 
@@ -218,21 +242,7 @@ def get_weight( shape , name ):
 shapes = [
     [ 50 , 50 , 3 , 3 ] , 
     [ 50 , 50 , 3 , 3 ] , 
-#    [ 3 , 3 , 16 , 32 ] , 
-#    [ 3 , 3 , 32 , 32 ] ,
-#    [ 3 , 3 , 32 , 64 ] , 
-#    [ 3 , 3 , 64 , 64 ] ,
-#    [ 3 , 3 , 64 , 128 ] , 
-#    [ 3 , 3 , 128 , 128 ] ,
-#    [ 3 , 3 , 128 , 256 ] , 
-#    [ 3 , 3 , 256 , 256 ] ,
-#    [ 3 , 3 , 256 , 512 ] , 
-#    [ 3 , 3 , 512 , 512 ] ,
     [ 1875 , 32 ] , 
-#    [ 3600 , 2400 ] ,
-#    [ 2400 , 1600 ] , 
-#    [ 1600 , 800 ] ,
-#    [ 800 , 64 ] ,
     [ 32 , 2 ] 
 ]
 
@@ -246,33 +256,9 @@ def model_tf( x ) :
     c1 = conv2d( c1 , weights[ 1 ] , stride_size=1 ) 
     p1 = maxpool( c1 , pool_size=2 , stride_size=2 )
     
-#    c2 = conv2d( p1 , weights[ 2 ] , stride_size=1 )
-#    c2 = conv2d( c2 , weights[ 3 ] , stride_size=1 ) 
-#    p2 = maxpool( c2 , pool_size=2 , stride_size=2 )
-    
-#    c3 = conv2d( p2 , weights[ 4 ] , stride_size=1 ) 
-#    c3 = conv2d( c3 , weights[ 5 ] , stride_size=1 ) 
-#    p3 = maxpool( c3 , pool_size=2 , stride_size=2 )
-    
-#    c4 = conv2d( p3 , weights[ 6 ] , stride_size=1 )
-#    c4 = conv2d( c4 , weights[ 7 ] , stride_size=1 )
-#    p4 = maxpool( c4 , pool_size=2 , stride_size=2 )
-
-#    c5 = conv2d( p4 , weights[ 8 ] , stride_size=1 )
-#    c5 = conv2d( c5 , weights[ 9 ] , stride_size=1 )
-#    p5 = maxpool( c5 , pool_size=2 , stride_size=2 )
-
-#    c6 = conv2d( p5 , weights[ 10 ] , stride_size=1 )
-#    c6 = conv2d( c6 , weights[ 11 ] , stride_size=1 )
-#    p6 = maxpool( c6 , pool_size=2 , stride_size=2 )
-
     flatten = tf.reshape( p1 , shape=( tf.shape( p1 )[0] , -1 ))
 
     d1 = dense( flatten , weights[ 2 ] )
-#    d2 = dense( d1 , weights[ 13 ] )
-#    d3 = dense( d2 , weights[ 14 ] )
-#    d4 = dense( d3 , weights[ 15 ] )
-#    d5 = dense( d4 , weights[ 16 ] )
     logits = tf.matmul( d1 , weights[ 3 ] )
 
     return tf.nn.softmax( logits )
@@ -289,12 +275,6 @@ def train_step( model, inputs , outputs ):
     optimizer.apply_gradients( zip( grads , weights ) )
     print( tf.reduce_mean( current_loss ) )
     
-#for e in range( num_epochs ):
-    for features in trainGen:
-#        print(features)
-        image , label = features[0] , features[1]
-#        label = tf.convert_to_tensor(label, tf.float32)
-#        print(label.dtype)
-#        train_step( model_tf , image , tf.one_hot( label , depth=3 ) )
-        train_step( model_tf , image , label)
-    
+for features in trainGen:
+    image , label = features[0] , features[1]
+    train_step( model_tf , image , label)
